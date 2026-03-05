@@ -107,7 +107,7 @@ if [ -n "$SIG_FILE" ] && [ -n "$TAR_FILE" ]; then
   "platforms": {
     "${PLATFORM_KEY}": {
       "signature": "${SIG}",
-      "url": "https://github.com/flakerimi/construct-releases/releases/download/v${VERSION}/${TAR_NAME}"
+      "url": "https://github.com/construct-space/releases/releases/download/v${VERSION}/${TAR_NAME}"
     }
   }
 }
