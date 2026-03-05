@@ -1,0 +1,309 @@
+name: Release Construct
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 0.2.1)'
+        required: true
+        type: string
+      branch:
+        description: 'Branch to build from'
+        required: false
+        default: 'main'
+        type: string
+
+env:
+  APP_NAME: construct
+  # Tauri updater signing key (set in repo secrets)
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS ARM (Apple Silicon)
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            os_label: macos-arm64
+            brain_goos: darwin
+            brain_goarch: arm64
+
+          # macOS x86_64 (Intel)
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            os_label: macos-x64
+            brain_goos: darwin
+            brain_goarch: amd64
+
+          # Linux x86_64
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            os_label: linux-x64
+            brain_goos: linux
+            brain_goarch: amd64
+
+          # Windows x86_64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            os_label: windows-x64
+            brain_goos: windows
+            brain_goarch: amd64
+
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout release repo
+        uses: actions/checkout@v4
+
+      - name: Checkout construct (private)
+        uses: actions/checkout@v4
+        with:
+          repository: flakerimi/construct
+          token: ${{ secrets.CONSTRUCT_PAT }}
+          ref: ${{ inputs.branch }}
+          path: construct
+
+      - name: Checkout construct-brain
+        uses: actions/checkout@v4
+        with:
+          repository: flakerimi/construct-brain
+          token: ${{ secrets.CONSTRUCT_PAT }}
+          ref: main
+          path: construct-brain
+
+      - name: Set version in configs
+        shell: bash
+        run: |
+          cd construct
+          # Update tauri.conf.json version
+          sed -i.bak 's/"version": "[^"]*"/"version": "${{ inputs.version }}"/' src-tauri/tauri.conf.json
+          rm -f src-tauri/tauri.conf.json.bak
+          # Update Cargo.toml version
+          sed -i.bak 's/^version = "[^"]*"/version = "${{ inputs.version }}"/' src-tauri/Cargo.toml
+          rm -f src-tauri/Cargo.toml.bak
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: construct/src-tauri
+
+      # Linux dependencies
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            javascriptcoregtk-4.1-dev
+
+      # Build brain service (Go sidecar)
+      - name: Build brain service
+        shell: bash
+        run: |
+          cd construct-brain
+          GOOS=${{ matrix.brain_goos }} GOARCH=${{ matrix.brain_goarch }} \
+            go build -o ../construct/src-tauri/bin/construct-brain-${{ matrix.target }}${{ matrix.brain_goos == 'windows' && '.exe' || '' }} .
+
+      # Install frontend dependencies
+      - name: Install dependencies
+        run: |
+          cd construct
+          bun install
+
+      # Build Tauri app
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: construct
+          tauriScript: bun run tauri
+          args: --target ${{ matrix.target }}
+
+      # Upload artifacts for the publish job
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os_label }}
+          path: |
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz.sig
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage.sig
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage.tar.gz
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage.tar.gz.sig
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi.sig
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.nsis.zip
+            construct/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.nsis.zip.sig
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout release repo
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Generate latest.json for Tauri updater
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Helper: find file matching pattern and return its path
+          find_artifact() {
+            find artifacts -name "$1" -type f | head -1
+          }
+
+          # Helper: read .sig file content
+          read_sig() {
+            local sig_file=$(find_artifact "$1")
+            if [ -n "$sig_file" ] && [ -f "$sig_file" ]; then
+              cat "$sig_file"
+            else
+              echo ""
+            fi
+          }
+
+          # macOS ARM
+          MAC_ARM_SIG=$(read_sig "*.aarch64.app.tar.gz.sig")
+          MAC_ARM_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Construct.Personal_${VERSION}_aarch64.app.tar.gz"
+
+          # macOS x64
+          MAC_X64_SIG=$(read_sig "*.x64.app.tar.gz.sig")
+          if [ -z "$MAC_X64_SIG" ]; then
+            MAC_X64_SIG=$(read_sig "*x86_64*.app.tar.gz.sig")
+          fi
+          MAC_X64_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Construct.Personal_${VERSION}_x64.app.tar.gz"
+
+          # Linux x64
+          LINUX_SIG=$(read_sig "*.AppImage.tar.gz.sig")
+          LINUX_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Construct.Personal_${VERSION}_amd64.AppImage.tar.gz"
+
+          # Windows x64
+          WIN_SIG=$(read_sig "*.nsis.zip.sig")
+          if [ -z "$WIN_SIG" ]; then
+            WIN_SIG=$(read_sig "*.msi.sig")
+          fi
+          WIN_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Construct.Personal_${VERSION}_x64-setup.nsis.zip"
+
+          # Build platforms JSON
+          cat > latest.json << ENDJSON
+          {
+            "version": "${VERSION}",
+            "notes": "Construct Personal v${VERSION}",
+            "pub_date": "${DATE}",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "${MAC_ARM_SIG}",
+                "url": "${MAC_ARM_URL}"
+              },
+              "darwin-x86_64": {
+                "signature": "${MAC_X64_SIG}",
+                "url": "${MAC_X64_URL}"
+              },
+              "linux-x86_64": {
+                "signature": "${LINUX_SIG}",
+                "url": "${LINUX_URL}"
+              },
+              "windows-x86_64": {
+                "signature": "${WIN_SIG}",
+                "url": "${WIN_URL}"
+              }
+            }
+          }
+          ENDJSON
+
+          echo "Generated latest.json:"
+          cat latest.json
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( \
+            -name "*.dmg" -o \
+            -name "*.app.tar.gz" -o \
+            -name "*.app.tar.gz.sig" -o \
+            -name "*.AppImage" -o \
+            -name "*.AppImage.tar.gz" -o \
+            -name "*.AppImage.tar.gz.sig" -o \
+            -name "*.deb" -o \
+            -name "*.msi" -o \
+            -name "*.msi.sig" -o \
+            -name "*.exe" -o \
+            -name "*.nsis.zip" -o \
+            -name "*.nsis.zip.sig" \
+          \) -exec cp {} release-assets/ \;
+          cp latest.json release-assets/
+          ls -la release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: Construct Personal v${{ inputs.version }}
+          body: |
+            ## Construct Personal v${{ inputs.version }}
+
+            ### Downloads
+            - **macOS (Apple Silicon)**: `.dmg`
+            - **macOS (Intel)**: `.dmg`
+            - **Linux**: `.AppImage` / `.deb`
+            - **Windows**: `.exe` / `.msi`
+
+            ### Auto-Update
+            Existing installations will receive this update automatically.
+          draft: false
+          prerelease: false
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
