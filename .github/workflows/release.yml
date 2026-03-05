@@ -148,7 +148,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: construct
-          tauriScript: bun run tauri
           args: --target ${{ matrix.target }}
 
       # Upload artifacts for the publish job
