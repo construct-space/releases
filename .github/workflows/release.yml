@@ -167,8 +167,10 @@ jobs:
           sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "npx cross-env TAURI=true bun run vite build"/' src-tauri/tauri.conf.json
           rm -f src-tauri/tauri.conf.json.bak
 
-      # tauri-action builds, creates updater .tar.gz + .sig, and handles
-      # codesigning via APPLE_SIGNING_IDENTITY (cert in keychain from above).
+      # tauri-action builds the app and repackages .app into .app.tar.gz for
+      # the updater. Apple codesigning + notarization via keychain from above.
+      # NOTE: tauri-action overwrites .tar.gz without re-signing — we fix that
+      # in the "Re-sign updater bundles" step below.
       - name: Build & sign with tauri-action
         uses: tauri-apps/tauri-action@v0
         env:
@@ -181,6 +183,32 @@ jobs:
           projectPath: construct
           tauriScript: cargo tauri
           args: --target ${{ matrix.target }}
+
+      # tauri-action repackages .app.tar.gz (overwriting the original from
+      # cargo tauri build) but does NOT re-sign it, leaving stale .sig files.
+      # Re-sign all updater bundles so signatures match the actual tarballs.
+      - name: Re-sign updater bundles
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          BUNDLE_DIR="construct/src-tauri/target/${{ matrix.target }}/release/bundle"
+          echo "Re-signing updater bundles in $BUNDLE_DIR..."
+
+          # Collect all updater bundles that need signing
+          SIGNED=0
+          while IFS= read -r -d '' f; do
+            echo "Signing: $f"
+            cargo tauri signer sign "$f" \
+              --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
+              --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+            echo "Signature for $(basename "$f"):"
+            cat "${f}.sig"
+            SIGNED=$((SIGNED + 1))
+          done < <(find "$BUNDLE_DIR" \( -name "*.app.tar.gz" -o -name "*.nsis.zip" -o -name "*.AppImage.tar.gz" \) -print0 2>/dev/null)
+
+          echo "Signed $SIGNED updater bundle(s)"
 
       - name: List bundle output
         shell: bash
