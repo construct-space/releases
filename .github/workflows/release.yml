@@ -252,10 +252,10 @@ jobs:
             cp "$ARM_DIR"/dmg/*.dmg release-assets/ 2>/dev/null || true
             # Rename .app.tar.gz to include arch
             for f in "$ARM_DIR"/macos/*.app.tar.gz; do
-              [ -f "$f" ] && cp "$f" "release-assets/Construct.Personal_${VERSION}_aarch64.app.tar.gz"
+              [ -f "$f" ] && cp "$f" "release-assets/Construct_${VERSION}_aarch64.app.tar.gz"
             done
             for f in "$ARM_DIR"/macos/*.app.tar.gz.sig; do
-              [ -f "$f" ] && cp "$f" "release-assets/Construct.Personal_${VERSION}_aarch64.app.tar.gz.sig"
+              [ -f "$f" ] && cp "$f" "release-assets/Construct_${VERSION}_aarch64.app.tar.gz.sig"
             done
           fi
 
@@ -264,10 +264,10 @@ jobs:
           if [ -d "$X64_DIR" ]; then
             cp "$X64_DIR"/dmg/*.dmg release-assets/ 2>/dev/null || true
             for f in "$X64_DIR"/macos/*.app.tar.gz; do
-              [ -f "$f" ] && cp "$f" "release-assets/Construct.Personal_${VERSION}_x64.app.tar.gz"
+              [ -f "$f" ] && cp "$f" "release-assets/Construct_${VERSION}_x64.app.tar.gz"
             done
             for f in "$X64_DIR"/macos/*.app.tar.gz.sig; do
-              [ -f "$f" ] && cp "$f" "release-assets/Construct.Personal_${VERSION}_x64.app.tar.gz.sig"
+              [ -f "$f" ] && cp "$f" "release-assets/Construct_${VERSION}_x64.app.tar.gz.sig"
             done
           fi
 
@@ -306,32 +306,32 @@ jobs:
             if [ -f "$f" ]; then cat "$f"; else echo ""; fi
           }
 
-          MAC_ARM_SIG=$(read_sig "Construct.Personal_${VERSION}_aarch64.app.tar.gz.sig")
-          MAC_X64_SIG=$(read_sig "Construct.Personal_${VERSION}_x64.app.tar.gz.sig")
-          LINUX_SIG=$(read_sig "Construct.Personal_${VERSION}_amd64.AppImage.tar.gz.sig")
-          WIN_SIG=$(read_sig "Construct.Personal_${VERSION}_x64-setup.nsis.zip.sig")
+          MAC_ARM_SIG=$(read_sig "Construct_${VERSION}_aarch64.app.tar.gz.sig")
+          MAC_X64_SIG=$(read_sig "Construct_${VERSION}_x64.app.tar.gz.sig")
+          LINUX_SIG=$(read_sig "Construct_${VERSION}_amd64.AppImage.tar.gz.sig")
+          WIN_SIG=$(read_sig "Construct_${VERSION}_x64-setup.nsis.zip.sig")
 
           cat > release-assets/latest.json << ENDJSON
           {
             "version": "${VERSION}",
-            "notes": "Construct Personal v${VERSION}",
+            "notes": "Construct v${VERSION}",
             "pub_date": "${DATE}",
             "platforms": {
               "darwin-aarch64": {
                 "signature": "${MAC_ARM_SIG}",
-                "url": "${BASE_URL}/Construct.Personal_${VERSION}_aarch64.app.tar.gz"
+                "url": "${BASE_URL}/Construct_${VERSION}_aarch64.app.tar.gz"
               },
               "darwin-x86_64": {
                 "signature": "${MAC_X64_SIG}",
-                "url": "${BASE_URL}/Construct.Personal_${VERSION}_x64.app.tar.gz"
+                "url": "${BASE_URL}/Construct_${VERSION}_x64.app.tar.gz"
               },
               "linux-x86_64": {
                 "signature": "${LINUX_SIG}",
-                "url": "${BASE_URL}/Construct.Personal_${VERSION}_amd64.AppImage.tar.gz"
+                "url": "${BASE_URL}/Construct_${VERSION}_amd64.AppImage.tar.gz"
               },
               "windows-x86_64": {
                 "signature": "${WIN_SIG}",
-                "url": "${BASE_URL}/Construct.Personal_${VERSION}_x64-setup.nsis.zip"
+                "url": "${BASE_URL}/Construct_${VERSION}_x64-setup.nsis.zip"
               }
             }
           }
@@ -344,9 +344,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ inputs.version }}
-          name: Construct Personal v${{ inputs.version }}
+          name: Construct v${{ inputs.version }}
           body: |
-            ## Construct Personal v${{ inputs.version }}
+            ## Construct v${{ inputs.version }}
 
             ### Downloads
             - **macOS (Apple Silicon)**: `.dmg`
