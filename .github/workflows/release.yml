@@ -15,7 +15,6 @@ on:
 
 env:
   APP_NAME: construct
-  # Tauri updater signing key (set in repo secrets)
   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
@@ -25,22 +24,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS ARM (Apple Silicon)
           - platform: macos-latest
             target: aarch64-apple-darwin
             os_label: macos-arm64
 
-          # macOS x86_64 (Intel)
           - platform: macos-latest
             target: x86_64-apple-darwin
             os_label: macos-x64
 
-          # Linux x86_64
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             os_label: linux-x64
 
-          # Windows x86_64
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             os_label: windows-x64
@@ -65,10 +60,8 @@ jobs:
         shell: bash
         run: |
           cd construct
-          # Update tauri.conf.json version
           sed -i.bak 's/"version": "[^"]*"/"version": "${{ inputs.version }}"/' src-tauri/tauri.conf.json
           rm -f src-tauri/tauri.conf.json.bak
-          # Update Cargo.toml version
           sed -i.bak 's/^version = "[^"]*"/version = "${{ inputs.version }}"/' src-tauri/Cargo.toml
           rm -f src-tauri/Cargo.toml.bak
 
@@ -92,7 +85,6 @@ jobs:
         with:
           workspaces: construct/src-tauri
 
-      # Linux dependencies
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -107,7 +99,6 @@ jobs:
             libsoup-3.0-dev \
             javascriptcoregtk-4.1-dev
 
-      # Download brain service binary from its latest release
       - name: Download brain service
         shell: bash
         env:
@@ -125,7 +116,6 @@ jobs:
           }
           chmod +x "construct/src-tauri/bin/${BINARY_NAME}" 2>/dev/null || true
 
-      # Switch SDK from local file ref to npm package for CI
       - name: Fix SDK dependency for CI
         shell: bash
         run: |
@@ -133,27 +123,26 @@ jobs:
           sed -i.bak 's|"@construct-space/sdk": "file:../construct-sdk"|"@construct-space/sdk": "latest"|' package.json
           rm -f package.json.bak
 
-      # Install frontend dependencies
       - name: Install dependencies
         run: |
           cd construct
           bun install
 
-      # Install Tauri CLI
+      # tauri-action needs the Tauri CLI available. The construct package.json
+      # maps "tauri" → "cargo tauri", so we install cargo-tauri here.
+      # See: https://github.com/tauri-apps/tauri-action
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0" --locked
 
-      # Build Tauri app
-      - name: Build Tauri
-        shell: bash
+      - name: Build & sign with tauri-action
+        uses: tauri-apps/tauri-action@v0
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          cd construct
-          cargo tauri build --target ${{ matrix.target }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: construct
+          tauriScript: cargo tauri
+          args: --target ${{ matrix.target }}
 
-      # Upload artifacts for the publish job
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -197,12 +186,10 @@ jobs:
           VERSION="${{ inputs.version }}"
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Helper: find file matching pattern and return its path
           find_artifact() {
             find artifacts -name "$1" -type f | head -1
           }
 
-          # Helper: read .sig file content
           read_sig() {
             local sig_file=$(find_artifact "$1")
             if [ -n "$sig_file" ] && [ -f "$sig_file" ]; then
@@ -234,7 +221,6 @@ jobs:
           fi
           WIN_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/Construct.Personal_${VERSION}_x64-setup.nsis.zip"
 
-          # Build platforms JSON
           cat > latest.json << ENDJSON
           {
             "version": "${VERSION}",
