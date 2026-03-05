@@ -167,20 +167,21 @@ jobs:
           sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "npx cross-env TAURI=true bun run vite build"/' src-tauri/tauri.conf.json
           rm -f src-tauri/tauri.conf.json.bak
 
-      - name: Build & sign with tauri-action
-        uses: tauri-apps/tauri-action@v0
+      # Build with cargo tauri directly (not tauri-action) to preserve
+      # updater .sig files — tauri-action repackages .app.tar.gz which
+      # invalidates the signature.
+      - name: Build Tauri
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS codesigning — cert is already in keychain from "Import Apple certificate" step.
-          # Don't pass APPLE_CERTIFICATE here (it re-imports all certs and picks the wrong one).
+          # macOS codesigning — cert is in keychain from "Import Apple certificate" step
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # macOS notarization
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        with:
-          projectPath: construct
-          tauriScript: cargo tauri
-          args: --target ${{ matrix.target }}
+        run: |
+          cd construct
+          cargo tauri build --target ${{ matrix.target }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
