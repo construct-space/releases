@@ -150,7 +150,6 @@ jobs:
           projectPath: construct
           tauriScript: bun run tauri
           args: --target ${{ matrix.target }}
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       # Upload artifacts for the publish job
       - name: Upload build artifacts
