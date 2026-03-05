@@ -61,14 +61,6 @@ jobs:
           ref: ${{ inputs.branch }}
           path: construct
 
-      - name: Checkout construct-sdk
-        uses: actions/checkout@v4
-        with:
-          repository: construct-space/sdk
-          token: ${{ secrets.SPACE_RELEASES_TOKEN }}
-          ref: main
-          path: construct-sdk
-
       - name: Set version in configs
         shell: bash
         run: |
@@ -132,6 +124,14 @@ jobs:
             touch "construct/src-tauri/bin/${BINARY_NAME}"
           }
           chmod +x "construct/src-tauri/bin/${BINARY_NAME}" 2>/dev/null || true
+
+      # Switch SDK from local file ref to npm package for CI
+      - name: Fix SDK dependency for CI
+        shell: bash
+        run: |
+          cd construct
+          sed -i.bak 's|"@construct-space/sdk": "file:../construct-sdk"|"@construct-space/sdk": "latest"|' package.json
+          rm -f package.json.bak
 
       # Install frontend dependencies
       - name: Install dependencies
