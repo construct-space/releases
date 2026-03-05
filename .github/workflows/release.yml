@@ -139,16 +139,19 @@ jobs:
           cd construct
           bun install
 
+      # Install Tauri CLI
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0" --locked
+
       # Build Tauri app
       - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: construct
-          args: --target ${{ matrix.target }}
+        run: |
+          cd construct
+          cargo tauri build --target ${{ matrix.target }}
 
       # Upload artifacts for the publish job
       - name: Upload build artifacts
