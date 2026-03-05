@@ -136,11 +136,12 @@ jobs:
 
       # Skip vue-tsc in CI — auto-import .d.ts files are gitignored and
       # only generated during dev. vite build alone is sufficient.
+      # Use npx cross-env for Windows compatibility.
       - name: Patch build command for CI
         shell: bash
         run: |
           cd construct
-          sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "TAURI=true bun run vite build"/' src-tauri/tauri.conf.json
+          sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "npx cross-env TAURI=true bun run vite build"/' src-tauri/tauri.conf.json
           rm -f src-tauri/tauri.conf.json.bak
 
       - name: Build & sign with tauri-action
