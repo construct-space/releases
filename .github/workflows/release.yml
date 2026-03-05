@@ -33,7 +33,7 @@ jobs:
             brain_goarch: arm64
 
           # macOS x86_64 (Intel)
-          - platform: macos-13
+          - platform: macos-latest
             target: x86_64-apple-darwin
             os_label: macos-x64
             brain_goos: darwin
@@ -153,6 +153,7 @@ jobs:
           projectPath: construct
           tauriScript: bun run tauri
           args: --target ${{ matrix.target }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       # Upload artifacts for the publish job
       - name: Upload build artifacts
