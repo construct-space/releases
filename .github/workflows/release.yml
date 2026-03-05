@@ -134,6 +134,15 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0" --locked
 
+      # Skip vue-tsc in CI — auto-import .d.ts files are gitignored and
+      # only generated during dev. vite build alone is sufficient.
+      - name: Patch build command for CI
+        shell: bash
+        run: |
+          cd construct
+          sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "TAURI=true bun run vite build"/' src-tauri/tauri.conf.json
+          rm -f src-tauri/tauri.conf.json.bak
+
       - name: Build & sign with tauri-action
         uses: tauri-apps/tauri-action@v0
         env:
