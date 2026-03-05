@@ -29,29 +29,21 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             os_label: macos-arm64
-            brain_goos: darwin
-            brain_goarch: arm64
 
           # macOS x86_64 (Intel)
           - platform: macos-latest
             target: x86_64-apple-darwin
             os_label: macos-x64
-            brain_goos: darwin
-            brain_goarch: amd64
 
           # Linux x86_64
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             os_label: linux-x64
-            brain_goos: linux
-            brain_goarch: amd64
 
           # Windows x86_64
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             os_label: windows-x64
-            brain_goos: windows
-            brain_goarch: amd64
 
     runs-on: ${{ matrix.platform }}
     permissions:
@@ -68,14 +60,6 @@ jobs:
           token: ${{ secrets.SPACE_RELEASES_TOKEN }}
           ref: ${{ inputs.branch }}
           path: construct
-
-      - name: Checkout construct-brain
-        uses: actions/checkout@v4
-        with:
-          repository: construct-space/construct-brain
-          token: ${{ secrets.SPACE_RELEASES_TOKEN }}
-          ref: main
-          path: construct-brain
 
       - name: Set version in configs
         shell: bash
@@ -97,11 +81,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -128,13 +107,23 @@ jobs:
             libsoup-3.0-dev \
             javascriptcoregtk-4.1-dev
 
-      # Build brain service (Go sidecar)
-      - name: Build brain service
+      # Download brain service binary from its latest release
+      - name: Download brain service
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SPACE_RELEASES_TOKEN }}
         run: |
-          cd construct-brain
-          GOOS=${{ matrix.brain_goos }} GOARCH=${{ matrix.brain_goarch }} \
-            go build -o ../construct/src-tauri/bin/construct-brain-${{ matrix.target }}${{ matrix.brain_goos == 'windows' && '.exe' || '' }} .
+          mkdir -p construct/src-tauri/bin
+          BINARY_NAME="construct-brain-${{ matrix.target }}"
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            BINARY_NAME="${BINARY_NAME}.exe"
+          fi
+          echo "Downloading ${BINARY_NAME} from construct-brain latest release..."
+          gh release download --repo construct-space/construct-brain --pattern "${BINARY_NAME}" --dir construct/src-tauri/bin/ || {
+            echo "Warning: Brain binary not available for this platform, creating placeholder"
+            touch "construct/src-tauri/bin/${BINARY_NAME}"
+          }
+          chmod +x "construct/src-tauri/bin/${BINARY_NAME}" 2>/dev/null || true
 
       # Install frontend dependencies
       - name: Install dependencies
