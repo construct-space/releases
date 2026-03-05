@@ -61,6 +61,14 @@ jobs:
           ref: ${{ inputs.branch }}
           path: construct
 
+      - name: Checkout construct-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: construct-space/sdk
+          token: ${{ secrets.SPACE_RELEASES_TOKEN }}
+          ref: main
+          path: construct-sdk
+
       - name: Set version in configs
         shell: bash
         run: |
