@@ -167,21 +167,20 @@ jobs:
           sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "npx cross-env TAURI=true bun run vite build"/' src-tauri/tauri.conf.json
           rm -f src-tauri/tauri.conf.json.bak
 
-      # Build with cargo tauri directly (not tauri-action) to preserve
-      # updater .sig files — tauri-action repackages .app.tar.gz which
-      # invalidates the signature.
-      - name: Build Tauri
-        shell: bash
+      # tauri-action builds, creates updater .tar.gz + .sig, and handles
+      # codesigning via APPLE_SIGNING_IDENTITY (cert in keychain from above).
+      - name: Build & sign with tauri-action
+        uses: tauri-apps/tauri-action@v0
         env:
-          # macOS codesigning — cert is in keychain from "Import Apple certificate" step
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # macOS notarization
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          cd construct
-          cargo tauri build --target ${{ matrix.target }}
+        with:
+          projectPath: construct
+          tauriScript: cargo tauri
+          args: --target ${{ matrix.target }}
 
       - name: List bundle output
         shell: bash
