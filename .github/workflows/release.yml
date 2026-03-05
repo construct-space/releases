@@ -65,7 +65,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: construct-space/construct
-          token: ${{ secrets.CONSTRUCT_PAT }}
+          token: ${{ secrets.SPACE_RELEASES_TOKEN }}
           ref: ${{ inputs.branch }}
           path: construct
 
@@ -73,7 +73,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: construct-space/construct-brain
-          token: ${{ secrets.CONSTRUCT_PAT }}
+          token: ${{ secrets.SPACE_RELEASES_TOKEN }}
           ref: main
           path: construct-brain
 
