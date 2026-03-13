@@ -46,10 +46,10 @@ jobs:
 
     steps:
       - name: Checkout release repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout construct (private)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: construct-space/construct
           token: ${{ secrets.SPACE_RELEASES_TOKEN }}
@@ -71,7 +71,7 @@ jobs:
           bun-version: latest
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -215,7 +215,7 @@ jobs:
         run: find "construct/src-tauri/target/${{ matrix.target }}/release/bundle" -type f | sort
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.os_label }}
           path: construct/src-tauri/target/${{ matrix.target }}/release/bundle/
@@ -228,10 +228,10 @@ jobs:
 
     steps:
       - name: Checkout release repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -341,7 +341,7 @@ jobs:
           cat release-assets/latest.json
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: v${{ inputs.version }}
           name: Construct v${{ inputs.version }}
