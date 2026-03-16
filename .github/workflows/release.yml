@@ -122,22 +122,43 @@ jobs:
             libsoup-3.0-dev \
             javascriptcoregtk-4.1-dev
 
-      - name: Download brain service
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Checkout operator
+        uses: actions/checkout@v6
+        with:
+          repository: construct-space/construct-operator
+          token: ${{ secrets.SPACE_RELEASES_TOKEN }}
+          path: construct-operator
+
+      - name: Build operator binary
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.SPACE_RELEASES_TOKEN }}
         run: |
-          mkdir -p construct/src-tauri/bin
-          BINARY_NAME="construct-brain-${{ matrix.target }}"
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+          cd construct-operator
+          mkdir -p ../construct/src-tauri/bin
+
+          # Map Tauri target to Go OS/ARCH
+          TARGET="${{ matrix.target }}"
+          case "$TARGET" in
+            aarch64-apple-darwin) GOOS=darwin GOARCH=arm64 ;;
+            x86_64-apple-darwin)  GOOS=darwin GOARCH=amd64 ;;
+            x86_64-unknown-linux-gnu) GOOS=linux GOARCH=amd64 ;;
+            x86_64-pc-windows-msvc) GOOS=windows GOARCH=amd64 ;;
+            *) echo "Unknown target: $TARGET"; exit 1 ;;
+          esac
+
+          BINARY_NAME="construct-operator-${TARGET}"
+          if [[ "$GOOS" == "windows" ]]; then
             BINARY_NAME="${BINARY_NAME}.exe"
           fi
-          echo "Downloading ${BINARY_NAME} from construct-brain latest release..."
-          gh release download --repo construct-space/construct-brain --pattern "${BINARY_NAME}" --dir construct/src-tauri/bin/ || {
-            echo "Warning: Brain binary not available for this platform, creating placeholder"
-            touch "construct/src-tauri/bin/${BINARY_NAME}"
-          }
-          chmod +x "construct/src-tauri/bin/${BINARY_NAME}" 2>/dev/null || true
+
+          echo "Building operator: GOOS=$GOOS GOARCH=$GOARCH → $BINARY_NAME"
+          GOOS=$GOOS GOARCH=$GOARCH go build -o "../construct/src-tauri/bin/${BINARY_NAME}" ./cmd/operator
+          chmod +x "../construct/src-tauri/bin/${BINARY_NAME}" 2>/dev/null || true
+          echo "Built: $(ls -lh ../construct/src-tauri/bin/${BINARY_NAME})"
 
       - name: Fix SDK dependency for CI
         shell: bash
