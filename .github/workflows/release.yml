@@ -227,7 +227,7 @@ jobs:
             echo "Signature for $(basename "$f"):"
             cat "${f}.sig"
             SIGNED=$((SIGNED + 1))
-          done < <(find "$BUNDLE_DIR" \( -name "*.app.tar.gz" -o -name "*.nsis.zip" -o -name "*.AppImage.tar.gz" \) -print0 2>/dev/null)
+          done < <(find "$BUNDLE_DIR" \( -name "*.app.tar.gz" -o -name "*.nsis.zip" -o -name "*.AppImage.tar.gz" -o -name "*.exe" -o -name "*.msi" \) -print0 2>/dev/null)
 
           echo "Signed $SIGNED updater bundle(s)"
 
@@ -305,6 +305,7 @@ jobs:
           WIN_DIR="artifacts/build-windows-x64"
           if [ -d "$WIN_DIR" ]; then
             cp "$WIN_DIR"/nsis/*.exe release-assets/ 2>/dev/null || true
+            cp "$WIN_DIR"/nsis/*.exe.sig release-assets/ 2>/dev/null || true
             cp "$WIN_DIR"/nsis/*.nsis.zip release-assets/ 2>/dev/null || true
             cp "$WIN_DIR"/nsis/*.nsis.zip.sig release-assets/ 2>/dev/null || true
             cp "$WIN_DIR"/msi/*.msi release-assets/ 2>/dev/null || true
@@ -330,7 +331,29 @@ jobs:
           MAC_ARM_SIG=$(read_sig "Construct_${VERSION}_aarch64.app.tar.gz.sig")
           MAC_X64_SIG=$(read_sig "Construct_${VERSION}_x64.app.tar.gz.sig")
           LINUX_SIG=$(read_sig "Construct_${VERSION}_amd64.AppImage.tar.gz.sig")
-          WIN_SIG=$(read_sig "Construct_${VERSION}_x64-setup.nsis.zip.sig")
+
+          # Prefer signed MSI for Windows updater (locale-safe; installer package is deterministic per release).
+          WIN_MSI_FILE=$(ls release-assets/Construct_${VERSION}_x64*.msi 2>/dev/null | head -n 1 || true)
+          WIN_EXE_FILE=$(ls release-assets/Construct_${VERSION}_x64-setup*.exe 2>/dev/null | head -n 1 || true)
+          WIN_NSIS_FILE=$(ls release-assets/Construct_${VERSION}_x64-setup*.nsis.zip 2>/dev/null | head -n 1 || true)
+
+          WIN_UPDATE_URL=""
+          WIN_SIG=""
+
+          if [ -n "${WIN_MSI_FILE}" ] && [ -f "${WIN_MSI_FILE}.sig" ]; then
+            WIN_UPDATE_URL="${BASE_URL}/$(basename "$WIN_MSI_FILE")"
+            WIN_SIG="$(cat "${WIN_MSI_FILE}.sig")"
+          elif [ -n "${WIN_EXE_FILE}" ] && [ -f "${WIN_EXE_FILE}.sig" ]; then
+            WIN_UPDATE_URL="${BASE_URL}/$(basename "$WIN_EXE_FILE")"
+            WIN_SIG="$(cat "${WIN_EXE_FILE}.sig")"
+          elif [ -n "${WIN_NSIS_FILE}" ] && [ -f "${WIN_NSIS_FILE}.sig" ]; then
+            WIN_UPDATE_URL="${BASE_URL}/$(basename "$WIN_NSIS_FILE")"
+            WIN_SIG="$(cat "${WIN_NSIS_FILE}.sig")"
+          else
+            echo "No signed Windows updater bundle found for ${VERSION}."
+            echo "Expected one of: *.msi, *.exe, *.nsis.zip with matching .sig in release-assets."
+            exit 1
+          fi
 
           cat > release-assets/latest.json << ENDJSON
           {
@@ -352,7 +375,7 @@ jobs:
               },
               "windows-x86_64": {
                 "signature": "${WIN_SIG}",
-                "url": "${BASE_URL}/Construct_${VERSION}_x64-setup.nsis.zip"
+                "url": "${WIN_UPDATE_URL}"
               }
             }
           }
