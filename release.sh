@@ -9,6 +9,7 @@ set -e
 
 REPO="construct-space/releases"
 BRANCH="${2:-main}"
+CONSTRUCT_DIR="$(cd "$(dirname "$0")/../construct" && pwd)"
 
 if [ -n "$1" ]; then
   VERSION="$1"
@@ -37,6 +38,23 @@ else
   fi
 fi
 
+# Sync version to all files in the construct repo
+echo "==> Syncing version to construct repo"
+"$CONSTRUCT_DIR/scripts/sync-version.sh" "$VERSION"
+
+# Commit version bump if there are changes
+cd "$CONSTRUCT_DIR"
+if [ -n "$(git status --porcelain .version package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml)" ]; then
+  git add .version package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+  git commit -m "Bump version to $VERSION"
+  git push
+  echo "  ✓ Version bump committed and pushed"
+else
+  echo "  ✓ Version already at $VERSION"
+fi
+cd -
+
+# Trigger CI release
 gh workflow run release.yml --repo "$REPO" -f version="$VERSION" -f branch="$BRANCH"
 echo ""
 echo "Triggered v${VERSION} from ${BRANCH}"
