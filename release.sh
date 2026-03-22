@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
-# Usage: ./release.sh [version] [branch]
-# If no version given, auto-bumps patch from latest GitHub release tag.
-# Bumps operator + construct to the same version, commits, pushes, triggers CI.
+# Usage: ./release.sh [version] [channel] [branch]
+#
 # Examples:
-#   ./release.sh              # auto-bump: 0.6.0 → 0.6.1
-#   ./release.sh 0.7.0        # explicit version (minor/major)
-#   ./release.sh 0.7.0 dev    # explicit version + CI branch
+#   ./release.sh                    # auto-bump patch, stable, from main
+#   ./release.sh 0.7.0              # explicit version, stable
+#   ./release.sh 0.7.0-beta.1 beta  # beta release from beta branch
+#   ./release.sh 0.7.0 stable dev   # stable from dev branch (testing)
 set -e
 
 REPO="construct-space/releases"
-BRANCH="${2:-main}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OPERATOR_DIR="$(cd "$SCRIPT_DIR/../construct-operator" && pwd)"
-CONSTRUCT_DIR="$(cd "$SCRIPT_DIR/../construct" && pwd)"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../construct-app" && pwd)"
+CHANNEL="${2:-stable}"
+BRANCH="${3:-main}"
+
+# Auto-set branch for beta channel
+if [ "$CHANNEL" = "beta" ] && [ "$BRANCH" = "main" ]; then
+  BRANCH="beta"
+fi
 
 # Determine version — git tags are the source of truth
 if [ -n "$1" ]; then
@@ -24,7 +28,7 @@ else
     echo "No existing release. Usage: ./release.sh 0.1.0"
     exit 1
   fi
-  IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
+  IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST%%-*}"
   PATCH=$((PATCH + 1))
   VERSION="${MAJOR}.${MINOR}.${PATCH}"
   echo "Latest: v${LATEST} → Bumping to: v${VERSION}"
@@ -33,29 +37,40 @@ else
 fi
 
 echo ""
-
-# 1. Bump operator
-echo "==> Operator v${VERSION}"
-sed -i '' "s/const Version = \"[^\"]*\"/const Version = \"${VERSION}\"/" "$OPERATOR_DIR/cmd/operator/main.go"
-cd "$OPERATOR_DIR"
-git add cmd/operator/main.go
-git commit -m "Release ${VERSION}" 2>/dev/null || echo "  (no changes)"
-git push
-cd - > /dev/null
-
-# 2. Bump construct (package.json, tauri.conf.json, Cargo.toml)
-echo "==> Construct v${VERSION}"
-sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$CONSTRUCT_DIR/package.json"
-sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$CONSTRUCT_DIR/src-tauri/tauri.conf.json"
-sed -i '' "3s/version = \"[^\"]*\"/version = \"${VERSION}\"/" "$CONSTRUCT_DIR/src-tauri/Cargo.toml"
-cd "$CONSTRUCT_DIR"
-git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
-git commit -m "Release ${VERSION}" 2>/dev/null || echo "  (no changes)"
-git push
-cd - > /dev/null
-
-# 3. Trigger CI
+echo "==> Release v${VERSION} (${CHANNEL}) from ${BRANCH}"
 echo ""
-echo "==> Triggering release v${VERSION} from ${BRANCH}"
-gh workflow run release.yml --repo "$REPO" -f version="$VERSION" -f branch="$BRANCH"
-echo "Watch: https://github.com/construct-space/releases/actions"
+
+# Bump version in construct-app monorepo
+echo "==> Bumping construct-app to v${VERSION}"
+cd "$APP_DIR"
+
+# package.json
+sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" package.json
+
+# tauri.conf.json
+sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" desktop/tauri.conf.json
+
+# Cargo.toml (line 3)
+sed -i '' "3s/version = \"[^\"]*\"/version = \"${VERSION}\"/" desktop/Cargo.toml
+
+# Operator version
+sed -i '' "s/const Version = \"[^\"]*\"/const Version = \"${VERSION}\"/" operator/cmd/operator/main.go
+
+git add package.json desktop/tauri.conf.json desktop/Cargo.toml operator/cmd/operator/main.go
+git commit -m "Release ${VERSION}" 2>/dev/null || echo "  (no changes)"
+git push origin "$BRANCH"
+cd - > /dev/null
+
+# Trigger CI
+echo ""
+echo "==> Triggering CI release v${VERSION} (${CHANNEL}) from ${BRANCH}"
+gh workflow run release.yml --repo "$REPO" \
+  -f version="$VERSION" \
+  -f branch="$BRANCH" \
+  -f channel="$CHANNEL"
+
+echo ""
+echo "==> Release v${VERSION} triggered"
+echo "  Channel: ${CHANNEL}"
+echo "  Branch:  ${BRANCH}"
+echo "  Watch:   https://github.com/construct-space/releases/actions"

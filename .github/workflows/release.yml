@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 0.2.1)'
+        description: 'Version to release (e.g. 0.7.0 or 0.7.0-beta.1)'
         required: true
         type: string
       branch:
@@ -12,6 +12,14 @@ on:
         required: false
         default: 'main'
         type: string
+      channel:
+        description: 'Release channel'
+        required: false
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
 
 env:
   APP_NAME: construct
@@ -48,22 +56,31 @@ jobs:
       - name: Checkout release repo
         uses: actions/checkout@v6
 
-      - name: Checkout construct (private)
+      # Now uses construct-app monorepo (operator is inside)
+      - name: Checkout construct-app
         uses: actions/checkout@v6
         with:
-          repository: construct-space/construct
+          repository: construct-space/construct-app
           token: ${{ secrets.SPACE_RELEASES_TOKEN }}
           ref: ${{ inputs.branch }}
-          path: construct
+          path: construct-app
 
       - name: Set version in configs
         shell: bash
         run: |
-          cd construct
-          sed -i.bak 's/"version": "[^"]*"/"version": "${{ inputs.version }}"/' src-tauri/tauri.conf.json
-          rm -f src-tauri/tauri.conf.json.bak
-          sed -i.bak 's/^version = "[^"]*"/version = "${{ inputs.version }}"/' src-tauri/Cargo.toml
-          rm -f src-tauri/Cargo.toml.bak
+          cd construct-app
+          # Update package.json
+          sed -i.bak 's/"version": "[^"]*"/"version": "${{ inputs.version }}"/' package.json
+          rm -f package.json.bak
+          # Update tauri.conf.json
+          sed -i.bak 's/"version": "[^"]*"/"version": "${{ inputs.version }}"/' desktop/tauri.conf.json
+          rm -f desktop/tauri.conf.json.bak
+          # Update Cargo.toml
+          sed -i.bak 's/^version = "[^"]*"/version = "${{ inputs.version }}"/' desktop/Cargo.toml
+          rm -f desktop/Cargo.toml.bak
+          # Update operator version
+          sed -i.bak 's/const Version = "[^"]*"/const Version = "${{ inputs.version }}"/' operator/cmd/operator/main.go
+          rm -f operator/cmd/operator/main.go.bak
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -83,10 +100,8 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: construct/src-tauri
+          workspaces: construct-app/desktop
 
-      # macOS: import Apple Developer ID certificate into a temporary keychain
-      # so Tauri can codesign and notarize the app.
       - name: Import Apple certificate
         if: runner.os == 'macOS'
         env:
@@ -125,22 +140,15 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
-      - name: Checkout operator
-        uses: actions/checkout@v6
-        with:
-          repository: construct-space/construct-operator
-          token: ${{ secrets.SPACE_RELEASES_TOKEN }}
-          path: construct-operator
-
+      # Operator is now inside the monorepo
       - name: Build operator binary
         shell: bash
         run: |
-          cd construct-operator
-          mkdir -p ../construct/src-tauri/bin
+          cd construct-app/operator
+          mkdir -p ../desktop/bin
 
-          # Map Tauri target to Go OS/ARCH
           TARGET="${{ matrix.target }}"
           case "$TARGET" in
             aarch64-apple-darwin) GOOS=darwin GOARCH=arm64 ;;
@@ -156,42 +164,25 @@ jobs:
           fi
 
           echo "Building operator: GOOS=$GOOS GOARCH=$GOARCH → $BINARY_NAME"
-          GOOS=$GOOS GOARCH=$GOARCH go build -o "../construct/src-tauri/bin/${BINARY_NAME}" ./cmd/operator
-          chmod +x "../construct/src-tauri/bin/${BINARY_NAME}" 2>/dev/null || true
-          echo "Built: $(ls -lh ../construct/src-tauri/bin/${BINARY_NAME})"
-
-      - name: Fix SDK dependency for CI
-        shell: bash
-        run: |
-          cd construct
-          sed -i.bak 's|"@construct-space/sdk": "file:../construct-sdk"|"@construct-space/sdk": "latest"|' package.json
-          rm -f package.json.bak
+          GOOS=$GOOS GOARCH=$GOARCH go build -o "../desktop/bin/${BINARY_NAME}" ./cmd/operator
+          chmod +x "../desktop/bin/${BINARY_NAME}" 2>/dev/null || true
 
       - name: Install dependencies
         run: |
-          cd construct
+          cd construct-app
           bun install
 
-      # tauri-action needs the Tauri CLI available. The construct package.json
-      # maps "tauri" → "cargo tauri", so we install cargo-tauri here.
-      # See: https://github.com/tauri-apps/tauri-action
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0" --locked
 
-      # Skip vue-tsc in CI — auto-import .d.ts files are gitignored and
-      # only generated during dev. vite build alone is sufficient.
-      # Use npx cross-env for Windows compatibility.
+      # Build frontend without typecheck (auto-import .d.ts are gitignored)
       - name: Patch build command for CI
         shell: bash
         run: |
-          cd construct
-          sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "npx cross-env TAURI=true bun run vite build"/' src-tauri/tauri.conf.json
-          rm -f src-tauri/tauri.conf.json.bak
+          cd construct-app
+          sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "npx cross-env TAURI=true bun run vite build --config frontend\/vite.config.ts"/' desktop/tauri.conf.json
+          rm -f desktop/tauri.conf.json.bak
 
-      # tauri-action builds the app and repackages .app into .app.tar.gz for
-      # the updater. Apple codesigning + notarization via keychain from above.
-      # NOTE: tauri-action overwrites .tar.gz without re-signing — we fix that
-      # in the "Re-sign updater bundles" step below.
       - name: Build & sign with tauri-action
         uses: tauri-apps/tauri-action@v0
         env:
@@ -201,45 +192,32 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          projectPath: construct
+          projectPath: construct-app
           tauriScript: cargo tauri
           args: --target ${{ matrix.target }}
 
-      # tauri-action repackages .app.tar.gz (overwriting the original from
-      # cargo tauri build) but does NOT re-sign it, leaving stale .sig files.
-      # Re-sign all updater bundles so signatures match the actual tarballs.
       - name: Re-sign updater bundles
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          BUNDLE_DIR="construct/src-tauri/target/${{ matrix.target }}/release/bundle"
-          echo "Re-signing updater bundles in $BUNDLE_DIR..."
-
-          # Collect all updater bundles that need signing
+          BUNDLE_DIR="construct-app/desktop/target/${{ matrix.target }}/release/bundle"
           SIGNED=0
           while IFS= read -r -d '' f; do
             echo "Signing: $f"
             cargo tauri signer sign "$f" \
               --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
               --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
-            echo "Signature for $(basename "$f"):"
-            cat "${f}.sig"
             SIGNED=$((SIGNED + 1))
           done < <(find "$BUNDLE_DIR" \( -name "*.app.tar.gz" -o -name "*.nsis.zip" -o -name "*.AppImage.tar.gz" -o -name "*.exe" -o -name "*.msi" \) -print0 2>/dev/null)
-
           echo "Signed $SIGNED updater bundle(s)"
-
-      - name: List bundle output
-        shell: bash
-        run: find "construct/src-tauri/target/${{ matrix.target }}/release/bundle" -type f | sort
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.os_label }}
-          path: construct/src-tauri/target/${{ matrix.target }}/release/bundle/
+          path: construct-app/desktop/target/${{ matrix.target }}/release/bundle/
 
   publish:
     needs: build
@@ -256,11 +234,6 @@ jobs:
         with:
           path: artifacts
 
-      - name: List artifacts
-        run: find artifacts -type f | sort
-
-      # Collect and rename assets so each platform has unique filenames.
-      # Tauri names .app.tar.gz without arch, so ARM and x64 would collide.
       - name: Collect release assets
         shell: bash
         run: |
@@ -271,7 +244,6 @@ jobs:
           ARM_DIR="artifacts/build-macos-arm64"
           if [ -d "$ARM_DIR" ]; then
             cp "$ARM_DIR"/dmg/*.dmg release-assets/ 2>/dev/null || true
-            # Rename .app.tar.gz to include arch
             for f in "$ARM_DIR"/macos/*.app.tar.gz; do
               [ -f "$f" ] && cp "$f" "release-assets/Construct_${VERSION}_aarch64.app.tar.gz"
             done
@@ -312,17 +284,16 @@ jobs:
             cp "$WIN_DIR"/msi/*.msi.sig release-assets/ 2>/dev/null || true
           fi
 
-          echo "Release assets:"
           ls -la release-assets/
 
       - name: Generate latest.json for Tauri updater
         shell: bash
         run: |
           VERSION="${{ inputs.version }}"
+          CHANNEL="${{ inputs.channel }}"
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           BASE_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}"
 
-          # Read signature files (already renamed with arch)
           read_sig() {
             local f="release-assets/$1"
             if [ -f "$f" ]; then cat "$f"; else echo ""; fi
@@ -332,30 +303,27 @@ jobs:
           MAC_X64_SIG=$(read_sig "Construct_${VERSION}_x64.app.tar.gz.sig")
           LINUX_SIG=$(read_sig "Construct_${VERSION}_amd64.AppImage.tar.gz.sig")
 
-          # Prefer signed MSI for Windows updater (locale-safe; installer package is deterministic per release).
           WIN_MSI_FILE=$(ls release-assets/Construct_${VERSION}_x64*.msi 2>/dev/null | head -n 1 || true)
           WIN_EXE_FILE=$(ls release-assets/Construct_${VERSION}_x64-setup*.exe 2>/dev/null | head -n 1 || true)
           WIN_NSIS_FILE=$(ls release-assets/Construct_${VERSION}_x64-setup*.nsis.zip 2>/dev/null | head -n 1 || true)
 
           WIN_UPDATE_URL=""
           WIN_SIG=""
-
           if [ -n "${WIN_MSI_FILE}" ] && [ -f "${WIN_MSI_FILE}.sig" ]; then
             WIN_UPDATE_URL="${BASE_URL}/$(basename "$WIN_MSI_FILE")"
             WIN_SIG="$(cat "${WIN_MSI_FILE}.sig")"
-          elif [ -n "${WIN_EXE_FILE}" ] && [ -f "${WIN_EXE_FILE}.sig" ]; then
-            WIN_UPDATE_URL="${BASE_URL}/$(basename "$WIN_EXE_FILE")"
-            WIN_SIG="$(cat "${WIN_EXE_FILE}.sig")"
           elif [ -n "${WIN_NSIS_FILE}" ] && [ -f "${WIN_NSIS_FILE}.sig" ]; then
             WIN_UPDATE_URL="${BASE_URL}/$(basename "$WIN_NSIS_FILE")"
             WIN_SIG="$(cat "${WIN_NSIS_FILE}.sig")"
-          else
-            echo "No signed Windows updater bundle found for ${VERSION}."
-            echo "Expected one of: *.msi, *.exe, *.nsis.zip with matching .sig in release-assets."
-            exit 1
           fi
 
-          cat > release-assets/latest.json << ENDJSON
+          # Write latest.json (or latest-beta.json for beta channel)
+          JSON_FILE="latest.json"
+          if [ "$CHANNEL" = "beta" ]; then
+            JSON_FILE="latest-beta.json"
+          fi
+
+          cat > "release-assets/${JSON_FILE}" << ENDJSON
           {
             "version": "${VERSION}",
             "notes": "Construct v${VERSION}",
@@ -381,9 +349,6 @@ jobs:
           }
           ENDJSON
 
-          echo "Generated latest.json:"
-          cat release-assets/latest.json
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2.5.0
         with:
@@ -391,6 +356,9 @@ jobs:
           name: Construct v${{ inputs.version }}
           body: |
             ## Construct v${{ inputs.version }}
+
+            **Channel:** ${{ inputs.channel }}
+            **Branch:** ${{ inputs.branch }}
 
             ### Downloads
             - **macOS (Apple Silicon)**: `.dmg`
@@ -401,7 +369,7 @@ jobs:
             ### Auto-Update
             Existing installations will receive this update automatically.
           draft: false
-          prerelease: false
+          prerelease: ${{ inputs.channel == 'beta' }}
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
