@@ -226,6 +226,10 @@ jobs:
           VERSION="${{ inputs.version }}"
           mkdir -p release-assets
 
+          echo "=== Artifact contents ==="
+          find artifacts/ -type f | sort
+          echo "========================="
+
           # macOS ARM
           ARM_DIR="artifacts/build-macos-arm64"
           if [ -d "$ARM_DIR" ]; then
