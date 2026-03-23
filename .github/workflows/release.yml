@@ -197,22 +197,7 @@ jobs:
           tauriScript: cargo tauri
           args: --target ${{ matrix.target }}
 
-      - name: Re-sign updater bundles
-        shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          BUNDLE_DIR="construct-app/desktop/target/${{ matrix.target }}/release/bundle"
-          SIGNED=0
-          while IFS= read -r -d '' f; do
-            echo "Signing: $f"
-            cargo tauri signer sign "$f" \
-              --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
-              --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
-            SIGNED=$((SIGNED + 1))
-          done < <(find "$BUNDLE_DIR" \( -name "*.app.tar.gz" -o -name "*.nsis.zip" -o -name "*.AppImage.tar.gz" -o -name "*.exe" -o -name "*.msi" \) -print0 2>/dev/null)
-          echo "Signed $SIGNED updater bundle(s)"
+      # tauri-action already signs updater bundles via TAURI_SIGNING_PRIVATE_KEY env
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
