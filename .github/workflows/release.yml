@@ -138,9 +138,10 @@ jobs:
             javascriptcoregtk-4.1-dev
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
+          cache-dependency-path: construct-app/operator/go.sum
 
       # Operator is now inside the monorepo
       - name: Build operator binary
@@ -217,7 +218,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.os_label }}
-          path: construct-app/desktop/target/${{ matrix.target }}/release/bundle/
+          path: construct-app/target/${{ matrix.target }}/release/bundle/
 
   publish:
     needs: build
