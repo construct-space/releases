@@ -294,57 +294,57 @@ jobs:
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           BASE_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}"
 
-          read_sig() {
-            local f="release-assets/$1"
-            if [ -f "$f" ]; then cat "$f"; else echo ""; fi
+          # Only include platforms that have both a bundle and a signature
+          PLATFORMS=""
+
+          add_platform() {
+            local key="$1" url="$2" sig_file="$3"
+            if [ -f "release-assets/$sig_file" ]; then
+              local sig=$(cat "release-assets/$sig_file")
+              if [ -n "$sig" ]; then
+                [ -n "$PLATFORMS" ] && PLATFORMS="${PLATFORMS},"
+                PLATFORMS="${PLATFORMS}
+              \"${key}\": { \"signature\": \"${sig}\", \"url\": \"${url}\" }"
+              fi
+            fi
           }
 
-          MAC_ARM_SIG=$(read_sig "Construct_${VERSION}_aarch64.app.tar.gz.sig")
-          MAC_X64_SIG=$(read_sig "Construct_${VERSION}_x64.app.tar.gz.sig")
-          LINUX_SIG=$(read_sig "Construct_${VERSION}_amd64.AppImage.tar.gz.sig")
+          add_platform "darwin-aarch64" \
+            "${BASE_URL}/Construct_${VERSION}_aarch64.app.tar.gz" \
+            "Construct_${VERSION}_aarch64.app.tar.gz.sig"
 
-          WIN_MSI_FILE=$(ls release-assets/Construct_${VERSION}_x64*.msi 2>/dev/null | head -n 1 || true)
-          WIN_EXE_FILE=$(ls release-assets/Construct_${VERSION}_x64-setup*.exe 2>/dev/null | head -n 1 || true)
-          WIN_NSIS_FILE=$(ls release-assets/Construct_${VERSION}_x64-setup*.nsis.zip 2>/dev/null | head -n 1 || true)
+          add_platform "darwin-x86_64" \
+            "${BASE_URL}/Construct_${VERSION}_x64.app.tar.gz" \
+            "Construct_${VERSION}_x64.app.tar.gz.sig"
 
-          WIN_UPDATE_URL=""
-          WIN_SIG=""
-          if [ -n "${WIN_MSI_FILE}" ] && [ -f "${WIN_MSI_FILE}.sig" ]; then
-            WIN_UPDATE_URL="${BASE_URL}/$(basename "$WIN_MSI_FILE")"
-            WIN_SIG="$(cat "${WIN_MSI_FILE}.sig")"
-          elif [ -n "${WIN_NSIS_FILE}" ] && [ -f "${WIN_NSIS_FILE}.sig" ]; then
-            WIN_UPDATE_URL="${BASE_URL}/$(basename "$WIN_NSIS_FILE")"
-            WIN_SIG="$(cat "${WIN_NSIS_FILE}.sig")"
+          add_platform "linux-x86_64" \
+            "${BASE_URL}/Construct_${VERSION}_amd64.AppImage.tar.gz" \
+            "Construct_${VERSION}_amd64.AppImage.tar.gz.sig"
+
+          # Windows — check nsis.zip first, then msi
+          WIN_SIG_FILE=""
+          WIN_URL=""
+          for pattern in "Construct_${VERSION}_x64-setup*.nsis.zip" "Construct_${VERSION}_x64*.msi"; do
+            for f in release-assets/$pattern; do
+              [ -f "$f" ] && [ -f "${f}.sig" ] && WIN_SIG_FILE="${f}.sig" && WIN_URL="${BASE_URL}/$(basename "$f")" && break 2
+            done
+          done
+          [ -n "$WIN_SIG_FILE" ] && add_platform "windows-x86_64" "$WIN_URL" "$(basename "$WIN_SIG_FILE")"
+
+          if [ -z "$PLATFORMS" ]; then
+            echo "ERROR: No signed platform bundles found. Skipping latest.json."
+            exit 1
           fi
 
-          # Write latest.json (or latest-beta.json for beta channel)
           JSON_FILE="latest.json"
-          if [ "$CHANNEL" = "beta" ]; then
-            JSON_FILE="latest-beta.json"
-          fi
+          [ "$CHANNEL" = "beta" ] && JSON_FILE="latest-beta.json"
 
           cat > "release-assets/${JSON_FILE}" << ENDJSON
           {
             "version": "${VERSION}",
             "notes": "Construct v${VERSION}",
             "pub_date": "${DATE}",
-            "platforms": {
-              "darwin-aarch64": {
-                "signature": "${MAC_ARM_SIG}",
-                "url": "${BASE_URL}/Construct_${VERSION}_aarch64.app.tar.gz"
-              },
-              "darwin-x86_64": {
-                "signature": "${MAC_X64_SIG}",
-                "url": "${BASE_URL}/Construct_${VERSION}_x64.app.tar.gz"
-              },
-              "linux-x86_64": {
-                "signature": "${LINUX_SIG}",
-                "url": "${BASE_URL}/Construct_${VERSION}_amd64.AppImage.tar.gz"
-              },
-              "windows-x86_64": {
-                "signature": "${WIN_SIG}",
-                "url": "${WIN_UPDATE_URL}"
-              }
+            "platforms": {${PLATFORMS}
             }
           }
           ENDJSON
