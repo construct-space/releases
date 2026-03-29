@@ -54,9 +54,9 @@ sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" desktop/tauri
 sed -i '' "3s/version = \"[^\"]*\"/version = \"${VERSION}\"/" desktop/Cargo.toml
 
 # Operator version
-sed -i '' "s/const Version = \"[^\"]*\"/const Version = \"${VERSION}\"/" operator/cmd/operator/main.go
+sed -i '' "s/const Version = \"[^\"]*\"/const Version = \"${VERSION}\"/" operator/main.go
 
-git add package.json desktop/tauri.conf.json desktop/Cargo.toml operator/cmd/operator/main.go
+git add package.json desktop/tauri.conf.json desktop/Cargo.toml operator/main.go
 git commit -m "Release ${VERSION}" 2>/dev/null || echo "  (no changes)"
 git push origin "$BRANCH"
 cd - > /dev/null
