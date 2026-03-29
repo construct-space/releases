@@ -79,8 +79,8 @@ jobs:
           sed -i.bak 's/^version = "[^"]*"/version = "${{ inputs.version }}"/' desktop/Cargo.toml
           rm -f desktop/Cargo.toml.bak
           # Update operator version
-          sed -i.bak 's/const Version = "[^"]*"/const Version = "${{ inputs.version }}"/' operator/cmd/operator/main.go
-          rm -f operator/cmd/operator/main.go.bak
+          sed -i.bak 's/const Version = "[^"]*"/const Version = "${{ inputs.version }}"/' operator/main.go
+          rm -f operator/main.go.bak
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -165,7 +165,7 @@ jobs:
           fi
 
           echo "Building operator: GOOS=$GOOS GOARCH=$GOARCH → $BINARY_NAME"
-          GOOS=$GOOS GOARCH=$GOARCH go build -o "../desktop/bin/${BINARY_NAME}" ./cmd/operator
+          GOOS=$GOOS GOARCH=$GOARCH go build -o "../desktop/bin/${BINARY_NAME}" .
           chmod +x "../desktop/bin/${BINARY_NAME}" 2>/dev/null || true
 
       - name: Install dependencies
