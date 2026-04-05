@@ -195,7 +195,7 @@ jobs:
         with:
           projectPath: construct-app
           tauriScript: cargo tauri
-          args: --target ${{ matrix.target }} --no-default-features --features custom-protocol
+          args: --target ${{ matrix.target }}
 
       # tauri-action already signs updater bundles via TAURI_SIGNING_PRIVATE_KEY env
 
