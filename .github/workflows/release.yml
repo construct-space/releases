@@ -184,6 +184,12 @@ jobs:
           sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "npx cross-env TAURI=true bun run vite build --config frontend\/vite.config.ts"/' desktop/tauri.conf.json
           rm -f desktop/tauri.conf.json.bak
 
+      # Browser sidecar isn't built in release pipeline; remove it so tauri CLI
+      # doesn't auto-discover browser/src-tauri as the project root.
+      - name: Remove browser sidecar for CI
+        shell: bash
+        run: rm -rf construct-app/browser/src-tauri
+
       - name: Build & sign with tauri-action
         uses: tauri-apps/tauri-action@v0
         env:
@@ -195,7 +201,7 @@ jobs:
         with:
           projectPath: construct-app
           tauriScript: cargo tauri
-          args: --target ${{ matrix.target }} --config desktop/tauri.conf.json
+          args: --target ${{ matrix.target }}
 
       # tauri-action already signs updater bundles via TAURI_SIGNING_PRIVATE_KEY env
 
