@@ -40,14 +40,13 @@ jobs:
             target: x86_64-apple-darwin
             os_label: macos-x64
 
-          # Linux/Windows temporarily disabled — re-enable after validating on mac
-          # - platform: ubuntu-22.04
-          #   target: x86_64-unknown-linux-gnu
-          #   os_label: linux-x64
-          #
-          # - platform: windows-latest
-          #   target: x86_64-pc-windows-msvc
-          #   os_label: windows-x64
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            os_label: linux-x64
+
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            os_label: windows-x64
 
     runs-on: ${{ matrix.platform }}
     permissions:
@@ -124,6 +123,10 @@ jobs:
             -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH login.keychain-db
 
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install create-dmg
+
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -177,13 +180,16 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2.0" --locked
 
-      # Build frontend without typecheck (auto-import .d.ts are gitignored)
+      # Patch beforeBuildCommand to frontend-only (skip type-check, avoid recursion)
       - name: Patch build command for CI
         shell: bash
         run: |
           cd construct-app
-          sed -i.bak 's/"beforeBuildCommand": ".*"/"beforeBuildCommand": "npx cross-env TAURI=true bun run vite build --config frontend\/vite.config.ts"/' desktop/tauri.conf.json
-          rm -f desktop/tauri.conf.json.bak
+          # -r: extended regex; tr strips \r so the pattern matches on Windows CRLF files
+          content=$(cat desktop/tauri.conf.json | tr -d '\r')
+          echo "$content" | sed 's|"beforeBuildCommand": ".*"|"beforeBuildCommand": "npx cross-env TAURI=true bun run vite build --config frontend/vite.config.ts"|' > desktop/tauri.conf.json
+          # Verify the patch applied
+          grep beforeBuildCommand desktop/tauri.conf.json
 
       # Browser sidecar isn't built in release pipeline; remove it so tauri CLI
       # doesn't auto-discover browser/src-tauri as the project root.
