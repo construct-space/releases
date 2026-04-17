@@ -177,8 +177,13 @@ jobs:
           cd construct-app
           bun install
 
+      # Pulls the prebuilt cargo-tauri binary (~2s) instead of compiling
+      # it from source (~8 min × 4 matrix jobs). taiki-e/install-action
+      # picks the right binary for each runner's triple automatically.
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0" --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@2.0
 
       # Patch beforeBuildCommand to frontend-only (skip type-check, avoid recursion)
       - name: Patch build command for CI
